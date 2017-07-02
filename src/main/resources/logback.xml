@@ -1,0 +1,15 @@
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%date %-5p [%20.20t] %30.30c{30} %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="org.apache.flink" level="WARN"/>
+    <logger name="org.apache.zookeeper" level="WARN"/>
+    <logger name="org.apache.kafka" level="WARN"/>
+
+    <root level="${rootLogLevel:-INFO}">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
