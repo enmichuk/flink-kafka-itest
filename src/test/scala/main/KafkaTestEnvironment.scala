@@ -48,7 +48,7 @@ class KafkaTestEnvironment extends Assertions with Logging {
     assert(tmpKafkaParent.mkdirs, "cannot create kafka temp dir")
     tmpKafkaDirs = ListBuffer[File]()
 
-    for (i <- 0 to numKafkaServers) yield {
+    for (i <- 0 until numKafkaServers) yield {
       val tmpDir: File = new File(tmpKafkaParent, s"server-$i")
       assert(tmpDir.mkdir, "cannot create kafka temp dir")
       tmpKafkaDirs += tmpDir
@@ -65,10 +65,10 @@ class KafkaTestEnvironment extends Assertions with Logging {
       info("Starting KafkaServer")
       brokers = ListBuffer[KafkaServer]()
 
-      for (i <- 0 to numKafkaServers) yield {
+      for (i <- 0 until numKafkaServers) yield {
         brokers += getKafkaServer(i, tmpKafkaDirs(i))
 
-        brokerConnectionString += hostAndPortToUrlString(KafkaHost, brokers(i).socketServer.boundPort(SecurityProtocol.PLAINTEXT)) + ","
+        brokerConnectionString += hostAndPortToUrlString(KafkaHost, brokers(i).socketServer.boundPort()) + ","
       }
       info("ZK and KafkaServer started.")
     } catch {
@@ -101,7 +101,7 @@ class KafkaTestEnvironment extends Assertions with Logging {
     kafkaProperties.put("zookeeper.session.timeout.ms", "30000")
     kafkaProperties.put("zookeeper.connection.timeout.ms", "30000")
     val numTries: Int = 5
-    for (i <- 0 to numTries) {
+    for (i <- 0 until numTries) {
       val kafkaPort: Int = getAvailablePort
       kafkaProperties.put("port", Integer.toString(kafkaPort))
       val kafkaConfig = new KafkaConfig(kafkaProperties)

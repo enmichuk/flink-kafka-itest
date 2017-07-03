@@ -1,6 +1,7 @@
 package main
 
 import com.typesafe.config.ConfigFactory
+import org.apache.flink.configuration.ConfigConstants
 import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
 import org.scalatest.BeforeAndAfterEach
 
@@ -22,11 +23,12 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
   }
 
   "FlinkKafkaJob" should "work" in {
-    info("Test started")
-    val env = StreamExecutionEnvironment.getExecutionEnvironment
-    new FlinkKafkaJob().run(config, env)
-    1 shouldBe 1
-    info("Test ended")
+    writeToTopic(InputTopic, "message".getBytes(ConfigConstants.DEFAULT_CHARSET))
+    eventually {
+      readFromTopic("test", InputTopic) should not be empty
+    }
+//    val env = StreamExecutionEnvironment.getExecutionEnvironment
+//    new FlinkKafkaJob().run(config, env)
   }
 
   private lazy val config = ConfigFactory.parseMap(Map(
