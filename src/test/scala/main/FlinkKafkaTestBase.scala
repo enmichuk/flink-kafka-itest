@@ -11,7 +11,7 @@ import org.apache.flink.runtime.minicluster.LocalFlinkMiniCluster
 import org.apache.flink.streaming.util.TestStreamEnvironment
 import org.apache.flink.util.InstantiationUtil
 import org.apache.kafka.clients.producer.ProducerConfig._
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
 import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.scalatest.concurrent.Eventually
 import org.scalatest.time.{Millis, Seconds, Span}
@@ -28,7 +28,8 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
   var flink: LocalFlinkMiniCluster = _
   var kafkaServer: KafkaTestEnvironment = _
-  protected var brokerConnectionStrings: String = _
+  protected var brokerConnectionString: String = _
+  protected var zookeeperConnectionString: String = _
   protected var standardProps: Properties = _
   implicit val defaultWaitingTime = Span(30, Seconds)
   implicit override val patienceConfig = PatienceConfig(
@@ -36,7 +37,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
     interval = scaled(Span(500, Millis)))
   private lazy val producer: KafkaProducer[String, Array[Byte]] = {
     val config = Map[String, AnyRef](
-      BOOTSTRAP_SERVERS_CONFIG -> brokerConnectionStrings,
+      BOOTSTRAP_SERVERS_CONFIG -> brokerConnectionString,
       ACKS_CONFIG -> "1",
       KEY_SERIALIZER_CLASS_CONFIG -> classOf[ByteArraySerializer].getName,
       VALUE_SERIALIZER_CLASS_CONFIG -> classOf[ByteArraySerializer].getName
@@ -77,7 +78,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
     val flinkConfig = new Configuration()
     flinkConfig.setInteger(LOCAL_NUMBER_TASK_MANAGER, TaskManagersNumber)
     flinkConfig.setInteger(TASK_MANAGER_NUM_TASK_SLOTS, TaskSlotNumber)
-    flinkConfig.setLong(MANAGED_MEMORY_SIZE, 16L)
+    flinkConfig.setLong(MANAGED_MEMORY_SIZE, 128L)
     flinkConfig.setString(RESTART_STRATEGY_FIXED_DELAY_DELAY, "0 s")
     flinkConfig
   }
@@ -91,7 +92,9 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
     standardProps = kafkaServer.getStandardProperties
 
-    brokerConnectionStrings = kafkaServer.getBrokerConnectionString
+    brokerConnectionString = kafkaServer.getBrokerConnectionString
+
+    zookeeperConnectionString = kafkaServer.getZookeeperConnectionString
 
     flink = new LocalFlinkMiniCluster(getFlinkConfiguration, useSingleActorSystem = false)
     flink.start()
@@ -114,12 +117,12 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
     kafkaServer.deleteTestTopic(topic)
   }
 
-  def writeToTopic(topic: String, data: Array[Byte]): Unit = {
+  def writeToTopic(topic: String, data: Array[Byte]): RecordMetadata = {
     producer.send(new ProducerRecord(topic, null, data)).get()
   }
 
   def readFromTopic(groupId: String, topic: String,
-    autoOffsetReset: String = "largest", timeout: FiniteDuration = 5.seconds): Seq[Array[Byte]] = {
+    autoOffsetReset: String = "smallest", timeout: FiniteDuration = 5.seconds): Seq[Array[Byte]] = {
 
     val props = new java.util.Properties
     props.setProperty("group.id", groupId)

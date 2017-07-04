@@ -65,12 +65,13 @@ class KafkaTestEnvironment extends Assertions with Logging {
       info("Starting KafkaServer")
       brokers = ListBuffer[KafkaServer]()
 
-      for (i <- 0 until numKafkaServers) yield {
-        brokers += getKafkaServer(i, tmpKafkaDirs(i))
+      brokerConnectionString =
+        (for (i <- 0 until numKafkaServers) yield {
+          brokers += getKafkaServer(i, tmpKafkaDirs(i))
 
-        brokerConnectionString += hostAndPortToUrlString(KafkaHost, brokers(i).socketServer.boundPort()) + ","
-      }
-      info("ZK and KafkaServer started.")
+          hostAndPortToUrlString(KafkaHost, brokers(i).socketServer.boundPort())
+        }).mkString(",")
+      info("ZK and KafkaServer started")
     } catch {
       case t: Throwable =>
         error(t)

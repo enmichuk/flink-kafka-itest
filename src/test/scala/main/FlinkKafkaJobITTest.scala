@@ -29,11 +29,15 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
     }
 //    val env = StreamExecutionEnvironment.getExecutionEnvironment
 //    new FlinkKafkaJob().run(config, env)
+//    writeToTopic(InputTopic, "message".getBytes(ConfigConstants.DEFAULT_CHARSET))
+//    eventually {
+//      readFromTopic("test", OutputTopic) should not be empty
+//    }
   }
 
   private lazy val config = ConfigFactory.parseMap(Map(
-    KafkaBrokersParam -> kafkaServer.getBrokerConnectionString,
-    KafkaZkConnectParam -> kafkaServer.getZookeeperConnectionString,
+    KafkaBrokersParam -> brokerConnectionString,
+    KafkaZkConnectParam -> zookeeperConnectionString,
     InputTopicParam -> InputTopic,
     OutputTopicParam -> OutputTopic
   ).asJava).withFallback(ConfigFactory.load())
