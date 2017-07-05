@@ -9,29 +9,42 @@ import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.streaming.api.scala.{StreamExecutionEnvironment, _}
 import org.apache.flink.streaming.connectors.kafka.{FlinkKafkaConsumer010, FlinkKafkaProducer010}
 import org.apache.flink.streaming.util.serialization.SimpleStringSchema
-import org.apache.kafka.clients.consumer.ConsumerConfig._
 
 class FlinkKafkaJob {
   import FlinkKafkaJob.Config._
   import FlinkKafkaJob._
 
   def run(conf: Config, env: StreamExecutionEnvironment): Unit = {
+
     val inputTopic = conf.getString(InputTopicParam)
     val outputTopic = conf.getString(OutputTopicParam)
     val kafkaBrokers =  conf.getString(KafkaBrokersParam)
     val zkConnect = conf.getString(KafkaZkConnectParam)
     val parallelism = conf.getInt(ParallelismParam)
 
-    val props = new Properties()
-    props.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
-    props.setProperty(GROUP_ID_CONFIG, KafkaGroupId)
-    props.setProperty("zookeeper.connect", zkConnect)
+    def getConsumerConfig = {
+      import org.apache.kafka.clients.consumer.ConsumerConfig._
+      val props = new Properties()
+      props.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
+      props.setProperty(GROUP_ID_CONFIG, KafkaGroupId)
+      props.setProperty(AUTO_OFFSET_RESET_CONFIG, "earliest")
+      props.setProperty("zookeeper.connect", zkConnect)
+      props
+    }
 
-    val producerProps = new Properties()
-    producerProps.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
+    val consumerProps = getConsumerConfig
+
+    def getProducerConfig = {
+      import org.apache.kafka.clients.producer.ProducerConfig._
+      val props = new Properties()
+      props.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
+      props
+    }
+
+    val producerProps = getProducerConfig
 
     val inputStream = env
-      .addSource(new FlinkKafkaConsumer010(inputTopic, new SimpleStringSchema, props))
+      .addSource(new FlinkKafkaConsumer010(inputTopic, new SimpleStringSchema, consumerProps))
       .name("InputStream")
       .setParallelism(parallelism)
 

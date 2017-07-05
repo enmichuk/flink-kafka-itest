@@ -8,6 +8,8 @@
     <logger name="org.apache.flink" level="WARN"/>
     <logger name="org.apache.zookeeper" level="WARN"/>
     <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="kafka" level="WARN"/>
+    <logger name="akka" level="WARN"/>
 
     <root level="${rootLogLevel:-INFO}">
         <appender-ref ref="CONSOLE"/>

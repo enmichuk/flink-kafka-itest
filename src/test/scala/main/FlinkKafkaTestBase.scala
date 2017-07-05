@@ -123,12 +123,13 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
   def readFromTopic(groupId: String, topic: String,
     autoOffsetReset: String = "smallest", timeout: FiniteDuration = 5.seconds): Seq[Array[Byte]] = {
+    import org.apache.kafka.clients.consumer.ConsumerConfig._
 
     val props = new java.util.Properties
-    props.setProperty("group.id", groupId)
+    props.setProperty(GROUP_ID_CONFIG, groupId)
     props.setProperty("zookeeper.connect", kafkaServer.getZookeeperConnectionString)
     props.setProperty("consumer.timeout.ms", timeout.toMillis.toString)
-    props.setProperty("auto.offset.reset", autoOffsetReset)
+    props.setProperty(AUTO_OFFSET_RESET_CONFIG, autoOffsetReset)
 
     val consumer = Consumer.create(new ConsumerConfig(props))
     val streams = consumer.createMessageStreams(Map(topic -> 1))

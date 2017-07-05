@@ -161,7 +161,7 @@ class KafkaTestEnvironment extends Assertions with Logging {
   }
 
   def createTestTopic(topic: String, numberOfPartitions: Int, replicationFactor: Int, topicConfig: Properties) {
-    info(s"Creating topic $topic")
+    info(s"Creating topic [$topic]")
     val zkUtils: ZkUtils = getZkUtils
     try {
       AdminUtils.createTopic(zkUtils, topic, numberOfPartitions, replicationFactor, topicConfig)
