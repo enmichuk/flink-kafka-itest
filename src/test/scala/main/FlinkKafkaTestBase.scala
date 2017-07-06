@@ -25,6 +25,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   with BeforeAndAfterAll with Logging {
 
   import FlinkKafkaTestBase._
+  import KafkaOffsetReset._
 
   var flink: LocalFlinkMiniCluster = _
   var kafkaServer: KafkaTestEnvironment = _
@@ -122,7 +123,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   }
 
   def readFromTopic(groupId: String, topic: String,
-    autoOffsetReset: String = "smallest", timeout: FiniteDuration = 5.seconds): Seq[Array[Byte]] = {
+    autoOffsetReset: String = Smallest, timeout: FiniteDuration = 5.seconds): Seq[Array[Byte]] = {
     import org.apache.kafka.clients.consumer.ConsumerConfig._
 
     val props = new java.util.Properties

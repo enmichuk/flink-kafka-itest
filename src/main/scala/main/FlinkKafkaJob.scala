@@ -13,6 +13,7 @@ import org.apache.flink.streaming.util.serialization.SimpleStringSchema
 class FlinkKafkaJob {
   import FlinkKafkaJob.Config._
   import FlinkKafkaJob._
+  import KafkaOffsetReset._
 
   def run(conf: Config, env: StreamExecutionEnvironment): Unit = {
 
@@ -27,7 +28,7 @@ class FlinkKafkaJob {
       val props = new Properties()
       props.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
       props.setProperty(GROUP_ID_CONFIG, KafkaGroupId)
-      props.setProperty(AUTO_OFFSET_RESET_CONFIG, "earliest")
+      props.setProperty(AUTO_OFFSET_RESET_CONFIG, Earliest)
       props.setProperty("zookeeper.connect", zkConnect)
       props
     }
