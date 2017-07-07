@@ -193,18 +193,17 @@ class KafkaTestEnvironment extends Assertions with Logging {
   def deleteTestTopic(topic: String) {
     val zkUtils: ZkUtils = getZkUtils
     try {
-      info(s"Deleting topic $topic")
-      val zk = new ZkClient(zookeeperConnectionString, ZkTimeout, ZkTimeout, new ZooKeeperStringSerializer)
-      AdminUtils.deleteTopic(zkUtils, topic)
-      zk.close()
+      info(s"Deleting topic [$topic]")
+      zkUtils.zkClient.deleteRecursive(ZkUtils.getTopicPath(topic))
+//      AdminUtils.deleteTopic(zkUtils, topic)
     } finally {
       zkUtils.close
     }
   }
 
   def getZkUtils: ZkUtils = {
-    val creator: ZkClient = new ZkClient(zookeeperConnectionString, ZkTimeout, ZkTimeout, new ZooKeeperStringSerializer)
-    ZkUtils(creator, isZkSecurityEnabled = false)
+    val zkClient = new ZkClient(zookeeperConnectionString, ZkTimeout, ZkTimeout, new ZooKeeperStringSerializer)
+    ZkUtils(zkClient, isZkSecurityEnabled = false)
   }
 
 }

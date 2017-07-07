@@ -20,7 +20,6 @@ class FlinkKafkaJob {
     val inputTopic = conf.getString(InputTopicParam)
     val outputTopic = conf.getString(OutputTopicParam)
     val kafkaBrokers =  conf.getString(KafkaBrokersParam)
-    val zkConnect = conf.getString(KafkaZkConnectParam)
     val parallelism = conf.getInt(ParallelismParam)
 
     def getConsumerConfig = {
@@ -29,7 +28,6 @@ class FlinkKafkaJob {
       props.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
       props.setProperty(GROUP_ID_CONFIG, KafkaGroupId)
       props.setProperty(AUTO_OFFSET_RESET_CONFIG, Earliest)
-      props.setProperty("zookeeper.connect", zkConnect)
       props
     }
 
@@ -72,7 +70,6 @@ object FlinkKafkaJob extends Logging {
     val InputTopicParam = "kafka.topics.input"
     val OutputTopicParam = "kafka.topics.output"
     val KafkaBrokersParam = "kafka.kafkaBrokers"
-    val KafkaZkConnectParam = "kafka.zkConnect"
     val ParallelismParam = "kafka.parallelism"
   }
 
