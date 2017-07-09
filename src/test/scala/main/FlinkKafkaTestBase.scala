@@ -4,6 +4,7 @@ import java.util.Properties
 import java.util.concurrent.TimeUnit
 
 import grizzled.slf4j.Logging
+import kafka.consumer.{Consumer, ConsumerConfig, ConsumerTimeoutException}
 import org.apache.flink.configuration.ConfigConstants._
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.configuration.TaskManagerOptions._
@@ -27,7 +28,8 @@ import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{Await, Future}
-import scala.util.Failure
+import scala.util.{Failure, Success, Try}
+import scala.concurrent.duration._
 
 trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   with BeforeAndAfterAll with Logging {
@@ -157,7 +159,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
         // try again, fall through the loop
         Thread.sleep(50)
       }
-      else if (jobs.size() == 1) {
+      else if (jobs.size == 1) {
         status = jobs.get(0)
       }
       else if (name != null) {
@@ -230,35 +232,32 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   }
 
   def readFromTopic(groupId: String, topic: String,
-    autoOffsetReset: String = Earliest, timeout: Int = 1000): Seq[Array[Byte]] = {
+                    autoOffsetReset: String = Smallest, timeout: FiniteDuration = 1.seconds): Seq[Array[Byte]] = {
     import org.apache.kafka.clients.consumer.ConsumerConfig._
 
     val props = new java.util.Properties
     props.setProperty(GROUP_ID_CONFIG, groupId)
-    props.setProperty(BOOTSTRAP_SERVERS_CONFIG, kafkaServer.getBrokerConnectionString)
+    props.setProperty("zookeeper.connect", kafkaServer.getZookeeperConnectionString)
+    props.setProperty("consumer.timeout.ms", timeout.toMillis.toString)
     props.setProperty(AUTO_OFFSET_RESET_CONFIG, autoOffsetReset)
-    props.setProperty(ENABLE_AUTO_COMMIT_CONFIG, "true")
-    props.put(KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer")
-    props.put(VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer")
 
-    val consumer = new KafkaConsumer[Array[Byte], Array[Byte]](props)
-    consumer.subscribe(Seq(topic))
+    val consumer = Consumer.create(new ConsumerConfig(props))
+    val streams = consumer.createMessageStreams(Map(topic -> 1))
+    val messageIterator = streams(topic).head.iterator()
 
-    val records = try {
-      Iterator.continually()
-        .map(_ => consumer.poll(timeout).records(topic))
-        .takeWhile(_.nonEmpty)
-        .flatMap(_.map(_.value()))
-        .toList
-    } finally {
-      consumer.close()
-    }
+    val messageTries = Iterator
+      .continually()
+      .map { _ => Try(messageIterator.next().message()) }
+      .takeWhile {
+        case Success(_) => true
+        case Failure(_: ConsumerTimeoutException) => false
+        case _ => throw new IllegalStateException("Exception occurred when reading from Kafka topic")
+      }
+      .toList
 
-    info(s"${records.size} records were read from topic [$topic] for group [$groupId] within timeout [$timeout] ms")
-    if(records.isEmpty) {
-      info(s"No records were found within timeout [$timeout] ms. Try to increase it")
-    }
-    records
+    consumer.shutdown()
+
+    messageTries map (_.get)
   }
 
   def ensureTopicIsEmptyForGroup(group: String, topic: String): Unit = {

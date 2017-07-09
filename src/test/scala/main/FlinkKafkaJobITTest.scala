@@ -37,9 +37,9 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
     }
     info("All messages were sent")
 
-//    eventually {
-      readFromTopic(TestGroupId, InputTopic) should not be empty
-//    }
+    eventually {
+      readFromTopic(TestGroupId, InputTopic).size shouldBe size
+    }
 
     runFlinkKafkaJob()
 
