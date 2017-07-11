@@ -8,7 +8,7 @@ import kafka.consumer.{Consumer, ConsumerConfig, ConsumerTimeoutException}
 import org.apache.flink.configuration.ConfigConstants._
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.configuration.TaskManagerOptions._
-import org.apache.flink.runtime.client.{JobCancellationException, JobStatusMessage, JobTimeoutException}
+import org.apache.flink.runtime.client.{JobCancellationException, JobTimeoutException}
 import org.apache.flink.runtime.messages.JobManagerMessages
 import org.apache.flink.runtime.messages.JobManagerMessages.{CancellationFailure, CancellationSuccess}
 import org.apache.flink.runtime.minicluster.LocalFlinkMiniCluster
@@ -16,7 +16,6 @@ import org.apache.flink.runtime.state.memory.MemoryStateBackend
 import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
 import org.apache.flink.streaming.util.TestStreamEnvironment
 import org.apache.flink.util.InstantiationUtil
-import org.apache.kafka.clients.consumer.KafkaConsumer
 import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord, RecordMetadata}
 import org.apache.kafka.common.serialization.ByteArraySerializer
 import org.scalatest.concurrent.Eventually
@@ -26,10 +25,9 @@ import org.scalatest.{BeforeAndAfterAll, FlatSpec, Matchers}
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{Await, Future}
 import scala.util.{Failure, Success, Try}
-import scala.concurrent.duration._
 
 trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   with BeforeAndAfterAll with Logging {
@@ -138,55 +136,13 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   }
 
   def cancelCurrentJob(name: String): Unit = {
-    var status: JobStatusMessage = null
     val askTimeout = new FiniteDuration(30, TimeUnit.SECONDS)
     val jobManager = flink.getLeaderGateway(askTimeout)
-
-    for (i <- 0 to 200) {
-      // find the jobID
-      val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, askTimeout)
-
-      var jobs: List[JobStatusMessage] = null
-      try {
-        val result = Await.result(listResponse, askTimeout)
-        jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
-      } catch {
-        case e: Exception =>
-          throw new Exception("Could not cancel job - failed to retrieve running jobs from the JobManager.", e);
-      }
-
-      if (jobs.isEmpty) {
-        // try again, fall through the loop
-        Thread.sleep(50)
-      }
-      else if (jobs.size == 1) {
-        status = jobs.get(0)
-      }
-      else if (name != null) {
-        for (msg <- jobs) {
-          if (msg.getJobName.equals(name)) {
-            status = msg
-          }
-        }
-        if (status == null) {
-          throw new Exception("Could not cancel job - no job matched expected name = '" + name + "' in " + jobs)
-        }
-      } else {
-        var jobNames: String = ""
-        for (jsm <- jobs) {
-          jobNames += jsm.getJobName + ", "
-        }
-        throw new Exception("Could not cancel job - more than one running job: " + jobNames)
-      }
-    }
-
-    if (status == null) {
-//      throw new Exception("Could not cancel job - no running jobs")
-    }
-    else if (status.getJobState.isGloballyTerminalState) {
-//      throw new Exception("Could not cancel job - job is not running any more")
-    } else {
-      val jobId = status.getJobId
+    val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, askTimeout)
+    val result = Await.result(listResponse, askTimeout)
+    val jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
+    jobs.find(_.getJobName.equalsIgnoreCase(name)).foreach{ job =>
+      val jobId = job.getJobId
 
       val response = jobManager.ask(JobManagerMessages.CancelJob(jobId), askTimeout)
       try {
@@ -196,7 +152,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
         }
       } catch {
         case e: Exception =>
-          throw new Exception("Sending the 'cancel' message failed.", e)
+          throw new Exception("Sending the [cancel] message failed.", e)
       }
     }
     waitUntilNoJobIsRunning()
@@ -204,17 +160,15 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
   def waitUntilNoJobIsRunning(timeout: FiniteDuration = new FiniteDuration(30, TimeUnit.SECONDS)): Unit = {
     val jobManager = flink.getLeaderGateway(timeout)
-    while (true) {
+    while ( {
       val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, timeout)
 
       val result = Await.result(listResponse, timeout)
       val jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
 
-      if (jobs.isEmpty) {
-        return
-      }
-
-      Thread.sleep(50)
+      jobs.nonEmpty
+    }) {
+      Thread.sleep(100)
     }
   }
 

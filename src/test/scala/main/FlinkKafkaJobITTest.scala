@@ -1,10 +1,17 @@
 package main
 
+import java.util.UUID
+
 import com.typesafe.config.ConfigFactory
 import org.apache.flink.configuration.ConfigConstants
+import org.apache.kafka.clients.producer.RecordMetadata
 import org.scalatest.BeforeAndAfterEach
 
+import org.scalatest.Inspectors._
+
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
@@ -20,40 +27,55 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
   }
 
   override def afterEach(): Unit = {
+    readFromOutputTopic()
+
     cancelCurrentJob(JobName)
 
-    ensureTopicIsEmptyForGroup(KafkaGroupId, OutputTopic)
-    ensureTopicIsEmptyForGroup(KafkaGroupId, InputTopic)
-    ensureTopicIsEmptyForGroup(TestGroupId, OutputTopic)
-    ensureTopicIsEmptyForGroup(TestGroupId, InputTopic)
-    info("Environment is clean and ready for next test")
+    eventually {
+      readFromOutputTopic() shouldBe empty
+    }
   }
 
-  "FlinkKafkaJob" should "work" in {
-    val size = 30000
-    for(i <- 0 until size) yield {
-      if(i % 1000 == 0 && i >0) info(s"$i messages has been sent")
-      writeToTopic(InputTopic, "message".getBytes(ConfigConstants.DEFAULT_CHARSET))
-    }
-    info("All messages were sent")
-
-    eventually {
-      readFromTopic(TestGroupId, InputTopic).size shouldBe size
-    }
+  "FlinkKafkaJob" should "transform correctly message" in {
+    val message = "message"
+    writeToInputTopic(message)
 
     runFlinkKafkaJob()
 
     eventually {
-      readFromTopic(KafkaGroupId, OutputTopic) should not be empty
+      readFromOutputTopic() should contain (new TransformMapFunction().map(message))
     }
-
-    writeToTopic(InputTopic, "message".getBytes(ConfigConstants.DEFAULT_CHARSET))
-
-    writeToTopic(InputTopic, "message".getBytes(ConfigConstants.DEFAULT_CHARSET))
   }
 
-  it should "also work" in {
-    1 shouldBe 1
+  it should "transform correctly 100 messages" in {
+    val size = 100
+    val buffer = ArrayBuffer[String]()
+    Future {
+      Thread.sleep(2000)
+      for (_ <- 0 until size) yield {
+        val msg = UUID.randomUUID().toString
+        buffer += msg
+        writeToInputTopic(msg)
+      }
+    }
+
+    runFlinkKafkaJob()
+
+    val bufferTransformed = buffer.map(new TransformMapFunction().map(_))
+
+    eventually {
+      forAll(readFromOutputTopic()) { msg =>
+        bufferTransformed should contain (msg + "1")
+      }
+    }
+  }
+
+  def readFromOutputTopic(): Seq[String] = {
+    readFromTopic(KafkaGroupId, OutputTopic).map(new String(_, ConfigConstants.DEFAULT_CHARSET))
+  }
+
+  def writeToInputTopic(msg: String): RecordMetadata = {
+    writeToTopic(InputTopic, msg.getBytes(ConfigConstants.DEFAULT_CHARSET))
   }
 
   private lazy val config = ConfigFactory.parseMap(Map(
@@ -71,5 +93,4 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
 object FlinkKafkaJobITTest {
   val InputTopic = "input"
   val OutputTopic = "output"
-  val TestGroupId = "test"
 }
