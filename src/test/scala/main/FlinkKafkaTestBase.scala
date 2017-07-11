@@ -117,11 +117,10 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
       fn(env)
     }
 
-    f.onComplete {
-      case Failure(e) if e.isInstanceOf[JobCancellationException] => info(e.getMessage)
-      case Failure(e) if e.isInstanceOf[JobTimeoutException] => info(e.getMessage)
-      case Failure(e) => error("Error while executing job", e)
-      case _ =>
+    f.onFailure {
+      case _: JobTimeoutException =>
+      case _: JobCancellationException =>
+      case e => error("Error while executing job", e)
     }
 
     f
@@ -152,7 +151,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
         }
       } catch {
         case e: Exception =>
-          throw new Exception("Sending the [cancel] message failed.", e)
+          throw new Exception("Sending the [cancel] message failed", e)
       }
     }
     waitUntilNoJobIsRunning()
