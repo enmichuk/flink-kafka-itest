@@ -8,7 +8,7 @@ import kafka.consumer.{Consumer, ConsumerConfig, ConsumerTimeoutException}
 import org.apache.flink.configuration.ConfigConstants._
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.configuration.TaskManagerOptions._
-import org.apache.flink.runtime.client.{JobCancellationException, JobTimeoutException}
+import org.apache.flink.runtime.client.{JobCancellationException, JobStatusMessage, JobTimeoutException}
 import org.apache.flink.runtime.messages.JobManagerMessages
 import org.apache.flink.runtime.messages.JobManagerMessages.{CancellationFailure, CancellationSuccess}
 import org.apache.flink.runtime.minicluster.LocalFlinkMiniCluster
@@ -35,7 +35,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   import FlinkKafkaTestBase._
   import KafkaOffsetReset._
 
-  var flink: LocalFlinkMiniCluster = _
+  var flinkCluster: LocalFlinkMiniCluster = _
   var kafkaServer: KafkaTestEnvironment = _
   protected var brokerConnectionString: String = _
   protected var zookeeperConnectionString: String = _
@@ -62,7 +62,7 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
     startClusters()
 
-    TestStreamEnvironment.setAsContext(flink, Parallelism)
+    TestStreamEnvironment.setAsContext(flinkCluster, Parallelism)
 
     info("FlinkKafkaTestBase started")
     delineate()
@@ -106,8 +106,8 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
     zookeeperConnectionString = kafkaServer.getZookeeperConnectionString
 
-    flink = new LocalFlinkMiniCluster(getFlinkConfiguration, useSingleActorSystem = false)
-    flink.start()
+    flinkCluster = new LocalFlinkMiniCluster(getFlinkConfiguration, useSingleActorSystem = false)
+    flinkCluster.start()
   }
 
   def withFlinkEnv(fn: StreamExecutionEnvironment => Unit): Future[Unit] = {
@@ -127,20 +127,55 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
   }
 
   def shutdownClusters(): Unit = {
-    if (flink != null) {
-      flink.stop()
+    if (flinkCluster != null) {
+      flinkCluster.stop()
     }
 
     kafkaServer.shutdown()
   }
 
   def cancelCurrentJob(name: String): Unit = {
+  var jobOpt: Option[JobStatusMessage] = None
     val askTimeout = new FiniteDuration(30, TimeUnit.SECONDS)
-    val jobManager = flink.getLeaderGateway(askTimeout)
-    val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, askTimeout)
-    val result = Await.result(listResponse, askTimeout)
-    val jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
-    jobs.find(_.getJobName.equalsIgnoreCase(name)).foreach{ job =>
+    val jobManager = flinkCluster.getLeaderGateway(askTimeout)
+
+    for (i <- 0 to 200) {
+      val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, askTimeout)
+
+      var jobs: List[JobStatusMessage] = null
+      try {
+        val result = Await.result(listResponse, askTimeout)
+        jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
+      } catch {
+        case e: Exception =>
+          throw new Exception("Could not cancel job - failed to retrieve running jobs from the JobManager", e);
+      }
+
+      if (jobs.isEmpty) {
+        Thread.sleep(50)
+      }
+      else if (jobs.size == 1) {
+        jobOpt = Option(jobs.get(0))
+      }
+      else if (name != null) {
+        for (msg <- jobs) {
+          if (msg.getJobName.equals(name)) {
+            jobOpt = Option(msg)
+          }
+        }
+        if (jobOpt.isEmpty) {
+          throw new Exception("Could not cancel job - no job matched expected name = '" + name + "' in " + jobs)
+        }
+      } else {
+        var jobNames: String = ""
+        for (jsm <- jobs) {
+          jobNames += jsm.getJobName + ", "
+        }
+        throw new Exception("Could not cancel job - more than one running job: " + jobNames)
+      }
+    }
+
+    jobOpt.foreach { job =>
       val jobId = job.getJobId
 
       val response = jobManager.ask(JobManagerMessages.CancelJob(jobId), askTimeout)
@@ -150,15 +185,14 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
           case CancellationFailure(_, cause) => info(s"Job $jobId cancellation failed", cause)
         }
       } catch {
-        case e: Exception =>
-          throw new Exception("Sending the [cancel] message failed", e)
+        case e: Exception => throw new Exception("Sending the 'cancel' message failed", e)
       }
     }
     waitUntilNoJobIsRunning()
   }
 
   def waitUntilNoJobIsRunning(timeout: FiniteDuration = new FiniteDuration(30, TimeUnit.SECONDS)): Unit = {
-    val jobManager = flink.getLeaderGateway(timeout)
+    val jobManager = flinkCluster.getLeaderGateway(timeout)
     while ( {
       val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, timeout)
 

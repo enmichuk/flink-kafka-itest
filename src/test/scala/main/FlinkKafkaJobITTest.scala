@@ -1,18 +1,19 @@
 package main
 
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 import com.typesafe.config.ConfigFactory
 import org.apache.flink.configuration.ConfigConstants
 import org.apache.kafka.clients.producer.RecordMetadata
 import org.scalatest.BeforeAndAfterEach
-
 import org.scalatest.Inspectors._
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, Future}
 
 class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
 
@@ -20,20 +21,18 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
   import FlinkKafkaJob._
   import FlinkKafkaJobITTest._
 
-  override def beforeAll(): Unit = {
-    super.beforeAll()
-    createTestTopic(InputTopic, 1, 1)
-    createTestTopic(OutputTopic, 1, 1)
+  private var currentInputTopicName: String = _
+  private var currentOutputTopicName: String = _
+
+  override def beforeEach(): Unit = {
+    currentInputTopicName = generateInputTopicName
+    currentOutputTopicName = generateOutputTopicName
+    createTestTopic(currentInputTopicName, 1, 1)
+    createTestTopic(currentOutputTopicName, 1, 1)
   }
 
   override def afterEach(): Unit = {
-    readFromOutputTopic()
-
     cancelCurrentJob(JobName)
-
-    eventually {
-      readFromOutputTopic() shouldBe empty
-    }
   }
 
   "FlinkKafkaJob" should "transform correctly message" in {
@@ -49,39 +48,49 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
 
   it should "transform correctly 100 messages" in {
     val size = 100
-    val buffer = ArrayBuffer[String]()
-    Future {
-      Thread.sleep(2000)
-      for (_ <- 0 until size) yield {
-        val msg = UUID.randomUUID().toString
-        buffer += msg
-        writeToInputTopic(msg)
-      }
-    }
+
+    val buffer =
+      Await.result(
+        Future {
+          val buffer = ArrayBuffer[String]()
+          Thread.sleep(2000)
+          for (_ <- 0 until size) yield {
+            val msg = UUID.randomUUID().toString
+            buffer += msg
+            writeToInputTopic(msg)
+          }
+          buffer
+        },
+        Duration.Inf
+      )
 
     runFlinkKafkaJob()
 
     val bufferTransformed = buffer.map(new TransformMapFunction().map(_))
 
-    eventually {
-      forAll(readFromOutputTopic()) { msg =>
-        bufferTransformed should contain (msg + "1")
-      }
+    val records = eventually {
+      val records = readFromOutputTopic()
+      records.size shouldBe size
+      records
+    }
+
+    forAll(records) { record =>
+      bufferTransformed should contain (record)
     }
   }
 
   def readFromOutputTopic(): Seq[String] = {
-    readFromTopic(KafkaGroupId, OutputTopic).map(new String(_, ConfigConstants.DEFAULT_CHARSET))
+    readFromTopic(KafkaGroupId, currentOutputTopicName).map(new String(_, ConfigConstants.DEFAULT_CHARSET))
   }
 
   def writeToInputTopic(msg: String): RecordMetadata = {
-    writeToTopic(InputTopic, msg.getBytes(ConfigConstants.DEFAULT_CHARSET))
+    writeToTopic(currentInputTopicName, msg.getBytes(ConfigConstants.DEFAULT_CHARSET))
   }
 
-  private lazy val config = ConfigFactory.parseMap(Map(
+  private def config = ConfigFactory.parseMap(Map(
     KafkaBrokersParam -> brokerConnectionString,
-    InputTopicParam -> InputTopic,
-    OutputTopicParam -> OutputTopic
+    InputTopicParam -> currentInputTopicName,
+    OutputTopicParam -> currentOutputTopicName
   ).asJava).withFallback(ConfigFactory.load())
 
   private def runFlinkKafkaJob(): Future[Unit] = {
@@ -91,6 +100,7 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
 }
 
 object FlinkKafkaJobITTest {
-  val InputTopic = "input"
-  val OutputTopic = "output"
+  val topicIndex = new AtomicInteger(0)
+  def generateInputTopicName = s"input-${topicIndex.incrementAndGet()}"
+  def generateOutputTopicName = s"output-${topicIndex.incrementAndGet()}"
 }
