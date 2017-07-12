@@ -49,24 +49,17 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
   it should "transform correctly 100 messages" in {
     val size = 100
 
-    val buffer =
-      Await.result(
-        Future {
-          val buffer = ArrayBuffer[String]()
-          Thread.sleep(2000)
-          for (_ <- 0 until size) yield {
-            val msg = UUID.randomUUID().toString
-            buffer += msg
-            writeToInputTopic(msg)
-          }
-          buffer
-        },
-        Duration.Inf
-      )
+    val buffer = ArrayBuffer[String]()
+    Future {
+      Thread.sleep(2000)
+      for (_ <- 0 until size) yield {
+        val msg = UUID.randomUUID().toString
+        buffer += msg
+        writeToInputTopic(msg)
+      }
+    }
 
     runFlinkKafkaJob()
-
-    val bufferTransformed = buffer.map(new TransformMapFunction().map(_))
 
     val records = eventually {
       val records = readFromOutputTopic()
@@ -74,8 +67,10 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
       records
     }
 
+    val bufferTransformed = buffer.map(new TransformMapFunction().map(_))
+
     forAll(records) { record =>
-      bufferTransformed should contain (record)
+      bufferTransformed should contain(record)
     }
   }
 
