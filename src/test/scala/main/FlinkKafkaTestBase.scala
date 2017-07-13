@@ -134,48 +134,30 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
     kafkaServer.shutdown()
   }
 
-  def cancelCurrentJob(name: String): Unit = {
-  var jobOpt: Option[JobStatusMessage] = None
+  def cancelCurrentJob(): Unit = {
+    var jobList: List[JobStatusMessage] = List()
     val askTimeout = new FiniteDuration(30, TimeUnit.SECONDS)
     val jobManager = flinkCluster.getLeaderGateway(askTimeout)
+    var i = 0
 
-    for (i <- 0 to 200) {
+    while(jobList.isEmpty && i < 200) {
+      i += 1
       val listResponse = jobManager.ask(JobManagerMessages.getRequestRunningJobsStatus, askTimeout)
 
-      var jobs: List[JobStatusMessage] = null
-      try {
+      val jobs = try {
         val result = Await.result(listResponse, askTimeout)
-        jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
+        result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
       } catch {
         case e: Exception =>
           throw new Exception("Could not cancel job - failed to retrieve running jobs from the JobManager", e);
       }
 
-      if (jobs.isEmpty) {
-        Thread.sleep(50)
-      }
-      else if (jobs.size == 1) {
-        jobOpt = Option(jobs.get(0))
-      }
-      else if (name != null) {
-        for (msg <- jobs) {
-          if (msg.getJobName.equals(name)) {
-            jobOpt = Option(msg)
-          }
-        }
-        if (jobOpt.isEmpty) {
-          throw new Exception("Could not cancel job - no job matched expected name = '" + name + "' in " + jobs)
-        }
-      } else {
-        var jobNames: String = ""
-        for (jsm <- jobs) {
-          jobNames += jsm.getJobName + ", "
-        }
-        throw new Exception("Could not cancel job - more than one running job: " + jobNames)
-      }
+      jobList = jobs
+
+      Thread.sleep(50)
     }
 
-    jobOpt.foreach { job =>
+    jobList.foreach { job =>
       val jobId = job.getJobId
 
       val response = jobManager.ask(JobManagerMessages.CancelJob(jobId), askTimeout)
@@ -185,9 +167,10 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
           case CancellationFailure(_, cause) => info(s"Job $jobId cancellation failed", cause)
         }
       } catch {
-        case e: Exception => throw new Exception("Sending the 'cancel' message failed", e)
+        case e: Exception => throw new Exception("Sending cancel failed", e)
       }
     }
+
     waitUntilNoJobIsRunning()
   }
 
@@ -199,6 +182,10 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
       val result = Await.result(listResponse, timeout)
       val jobs = result.asInstanceOf[JobManagerMessages.RunningJobsStatus].getStatusMessages().toList
 
+      if(jobs.nonEmpty) {
+        info(s"Jobs [${jobs.map(_.getJobName).mkString(",")}] are in process")
+      }
+
       jobs.nonEmpty
     }) {
       Thread.sleep(100)
@@ -208,10 +195,6 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
 
   def createTestTopic(topic: String, numberOfPartitions: Int, replicationFactor: Int): Unit = {
     kafkaServer.createTestTopic(topic, numberOfPartitions, replicationFactor, new Properties())
-  }
-
-  def deleteTestTopic(topic: String): Unit = {
-    kafkaServer.deleteTestTopic(topic)
   }
 
   def writeToTopic(topic: String, data: Array[Byte]): RecordMetadata = {
@@ -245,13 +228,6 @@ trait FlinkKafkaTestBase extends FlatSpec with Matchers with Eventually
     consumer.shutdown()
 
     messageTries map (_.get)
-  }
-
-  def ensureTopicIsEmptyForGroup(group: String, topic: String): Unit = {
-    eventually {
-      readFromTopic(group, topic) shouldBe empty
-    }
-    info(s"Topic [$topic] has no records from group [$group]")
   }
 
 }

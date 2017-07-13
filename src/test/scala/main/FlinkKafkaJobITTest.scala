@@ -12,8 +12,7 @@ import org.scalatest.Inspectors._
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, Future}
+import scala.concurrent.Future
 
 class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
 
@@ -32,7 +31,7 @@ class FlinkKafkaJobITTest extends FlinkKafkaTestBase with BeforeAndAfterEach {
   }
 
   override def afterEach(): Unit = {
-    cancelCurrentJob(JobName)
+    cancelCurrentJob()
   }
 
   "FlinkKafkaJob" should "transform correctly message" in {
